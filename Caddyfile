@@ -1,0 +1,14 @@
+http://localhost:3000
+
+log {
+    output file ./logs/access_logs.log
+}
+
+handle_path /explorer/* {
+    root * ./public
+    file_server
+}
+
+reverse_proxy :8001 :8002 :8003 {
+    lb_policy   round_robin    
+}

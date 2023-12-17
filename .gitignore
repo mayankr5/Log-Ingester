@@ -1,0 +1,6 @@
+node_modules
+.env
+run/
+logs/
+.DS_Store
+.github
