@@ -20,6 +20,13 @@ async function main() {
     const server = app.listen(PORT, () => {
         console.log(`Server is running at port ${PORT}`);
     });
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.error(`Port ${PORT} is already in use. Is another instance running? Try \`make stop\`.`);
+            process.exit(1);
+        }
+        throw err;
+    });
 
     // Graceful shutdown: stop taking requests, write buffered logs, then close the DB.
     const shutdown = async (signal) => {

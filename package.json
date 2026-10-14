@@ -7,7 +7,8 @@
     "start": "node index.js",
     "test": "node --test test/*.test.js",
     "loadtest": "node scripts/loadtest.js",
-    "mongo": "node scripts/dev-mongo.js"
+    "mongo": "node scripts/dev-mongo.js",
+    "seed": "node scripts/seed.js"
   },
   "author": "",
   "license": "ISC",

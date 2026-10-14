@@ -2,7 +2,7 @@
 
 A service for storing and searching logs. You send logs to it over HTTP, it saves them in MongoDB, and you can search them with a simple Lucene-style query language, either through the API or a small web page.
 
-<img src="images/logquery.png" alt="Log explorer" width="80%">
+<img src="images/log-explorer.png" alt="Log Explorer showing recent logs with level badges and example queries" width="100%">
 
 ## What it does
 
@@ -47,7 +47,7 @@ make mongo   # terminal 1: local MongoDB on :27017 (keep it running)
 make run     # terminal 2: 3 instances + Caddy on :3000
 ```
 
-Open the log explorer at http://localhost:3000/explorer/ and stop everything with `make stop`.
+Add some sample logs with `make seed`, then open the log explorer at http://localhost:3000/explorer/ and stop everything with `make stop`.
 
 By default the app connects to `mongodb://127.0.0.1:27017/logs`. To use another database, set `MONGODB_URI` or copy `.env.example` to `.env`.
 
