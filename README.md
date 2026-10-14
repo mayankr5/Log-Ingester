@@ -43,17 +43,19 @@ Requirements: Node.js 18+ and [Caddy](https://caddyserver.com/docs/install) (`br
 
 ```sh
 npm install
-make mongo                                            # terminal 1: MongoDB on :27017
-MONGODB_URI=mongodb://127.0.0.1:27017/logs make run   # terminal 2: 3 instances + Caddy on :3000
+make mongo   # terminal 1: local MongoDB on :27017 (keep it running)
+make run     # terminal 2: 3 instances + Caddy on :3000
 ```
 
 Open the log explorer at http://localhost:3000/explorer/ and stop everything with `make stop`.
 
-To run a single instance without Caddy: `MONGODB_URI=... npm start` (port 3000).
+By default the app connects to `mongodb://127.0.0.1:27017/logs`. To use another database, set `MONGODB_URI` or copy `.env.example` to `.env`.
+
+To run a single instance without Caddy: `npm start` (port 3000).
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `MONGODB_URI` | required | MongoDB connection string |
+| `MONGODB_URI` | `mongodb://127.0.0.1:27017/logs` | MongoDB connection string |
 | `PORT` | 3000 | HTTP port |
 | `BATCH_SIZE` | 1000 | Max logs per `insertMany` |
 | `MAX_IN_FLIGHT` | 4 | Max concurrent `insertMany` calls per instance |
