@@ -1,173 +1,149 @@
 <h1 align="center">Log Ingester</h1>
 
-It is a log ingester that can efficiently handle log data, and offer a simple web interface for querying this data using full-text search or specific field filters.
+A service for storing and searching logs. You send logs to it over HTTP, it saves them in MongoDB, and you can search them with a simple Lucene-style query language, either through the API or a small web page.
 
-</br>
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li>
-      <a href="#about-the-project">About The Project</a>
-      <ul>
-        <li><a href="#built-with">Built With</a></li>
-      </ul>
-    </li>
-    <li>
-      <a href="#getting-started">Getting Started</a>
-      <ul>
-        <li><a href="#prerequisites">Prerequisites</a></li>
-        <li><a href="#installation">Installation</a></li>
-      </ul>
-    </li>
-    <li><a href="#Example">Examples</a></li>
-  </ol>
-</details>
+<img src="images/logquery.png" alt="Log explorer" width="80%">
 
+## What it does
 
-## About The Project
+- **Ingests logs in batches.** When many requests arrive at once, their logs are written to MongoDB together in one `insertMany` call instead of one insert each. In my local tests this roughly doubled write throughput.
+- **Parses search queries.** A small parser handles `AND`, `OR`, `NOT`, brackets, quoted values, prefix wildcards (`abc*`), timestamp ranges and free-text search. Only known fields can be searched, so queries like `$where:...` are rejected.
+- **Pages through results with a cursor.** Each searchable field has an index that also includes the timestamp, so results come back already sorted and only one page is read at a time.
+- **Runs as 3 instances behind Caddy.** Caddy spreads requests across them and stops sending traffic to an instance that goes down.
+- **Has tests** for the parser, validation, pagination and concurrent writes (`npm test`).
 
-<img src="images/logquery.png" alt="logquery" style="margin-left:40px" width="80%">
-<img src="images/specificLog.png" alt="log" style="margin-left:40px" width="80%">
+## Architecture
 
-- It is Basic log ingester and Log query interface project utilize basic crud operations.
+```
+                 ┌──────────────────────────────┐
+  clients ──────▶│ Caddy :3000                  │
+  web UI         │ round robin, health checks   │
+                 └──────┬─────────┬─────────┬───┘
+                        ▼         ▼         ▼
+                     :8001     :8002     :8003     Node.js / Express (stateless)
+                        │  validate → batch writer (group commit)
+                        │  query parser → MongoDB filter
+                        └─────────┬─────────┘
+                                  ▼
+                               MongoDB   compound indexes + text index on message
+```
 
+| Path | What it does |
+|---|---|
+| `src/query/parser.js` | Tokenizer and recursive-descent parser that turns a query string into an AST |
+| `src/query/compile.js` | Turns the AST into a MongoDB filter and enforces the field allowlist |
+| `src/ingest/batchWriter.js` | Group-commit writer: up to 4 `insertMany` calls in flight, and batches build up while they run |
+| `src/validation/log.js` | Validates each log and strips unknown fields |
+| `src/routes/logs.js` | Ingest and search endpoints, cursor pagination |
+| `src/models/log.models.js` | Schema and indexes |
 
+## Getting started
 
-### Built With
+Requirements: Node.js 18+ and [Caddy](https://caddyserver.com/docs/install) (`brew install caddy`). You don't need MongoDB installed, because `make mongo` starts a throwaway local one.
 
+```sh
+npm install
+make mongo                                            # terminal 1: MongoDB on :27017
+MONGODB_URI=mongodb://127.0.0.1:27017/logs make run   # terminal 2: 3 instances + Caddy on :3000
+```
 
-* [![Express][Express.js]][Express-url]
-* [![Node][Node.js]][Node-url]
-* [![Caddy][Caddy-img]][Caddy-url]
+Open the log explorer at http://localhost:3000/explorer/ and stop everything with `make stop`.
 
+To run a single instance without Caddy: `MONGODB_URI=... npm start` (port 3000).
 
+| Env var | Default | Meaning |
+|---|---|---|
+| `MONGODB_URI` | required | MongoDB connection string |
+| `PORT` | 3000 | HTTP port |
+| `BATCH_SIZE` | 1000 | Max logs per `insertMany` |
+| `MAX_IN_FLIGHT` | 4 | Max concurrent `insertMany` calls per instance |
 
+Run the tests with `npm test`, and the load test against a running service with `npm run loadtest`.
 
-<!-- GETTING STARTED -->
-## Getting Started
+## API
 
-### Prerequisites
+### Ingest: `POST /logs` (or `POST /`)
 
-To start, install npm and caddy
-* npm
-  ```sh
-  npm install npm@latest -g
-  ```
-* [Caddy](https://caddyserver.com/) is used as a reverse proxy and a load balancer to distribute requests to backend servers.
-  Install caddy using the documentation at https://caddyserver.com/docs/install.  
-  For MacOS:
-  ```sh
-  brew install caddy
-  ```
+Send one log object, or an array of up to 1,000 logs.
 
-  and for Debian based linux:
-  ```sh
-  sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-  sudo apt update
-  sudo apt install caddy
-  ```
+```json
+{
+  "level": "error",
+  "message": "Failed to connect to DB",
+  "resourceId": "server-1234",
+  "timestamp": "2023-09-15T08:00:00Z",
+  "traceId": "abc-xyz-123",
+  "spanId": "span-456",
+  "commit": "5e5342f",
+  "metadata": { "parentResourceId": "server-0987" }
+}
+```
 
-### Installation
+`level` must be one of `fatal, error, warn, info, debug, trace`, and `message` is required. `timestamp` defaults to now. Invalid logs in a batch are reported by index and the valid ones are still stored:
 
-1. Clone the repo
-   ```sh
-   git clone https://github.com/dyte-submissions/november-2023-hiring-mayankr5
-   ```
-2. Install NPM packages
-   ```sh
-   npm install
-   ```
-3. Enter your MONGODB_URI in `src/utils/config.js`
-   ```js
-   const MONGODB_URI = 'ENTER YOUR MONGODB_URI';
-   ```
+```json
+201 { "accepted": 2, "rejected": [{ "index": 1, "error": "level must be one of: ..." }] }
+```
 
-4. To start servers enter following command.
-   ```sh
-   make run
-   ```
-5. Now server is running on port 3000 where you can upload your logs on server http://localhost:3000.
+### Search: `GET /logs?q=<query>&from=<iso>&to=<iso>&limit=50&cursor=<cursor>`
 
-<img src="images/postlog.png" alt="postapi" style="margin-left:40px" width="80%">
-</br>
-</br>
+Returns `{ "logs": [...], "nextCursor": "..." }`, newest first. To get the next page, pass `nextCursor` back as `cursor`. `limit` is at most 500. An invalid query returns `400` with a message explaining what's wrong.
 
-6. After upload logs on database you can view logs on web page http://localhost:3000/explorer/
+### Health: `GET /health`
 
-7. To stop server enter following command.
-   ```sh
-   make stop
-   ```
+`200 {"status":"ok","db":"up"}`, or `503` if MongoDB is unreachable. Caddy uses this to take unhealthy instances out of rotation.
 
-### Examples
+## Query language
 
-Log explorer uses [Lucene Query Syntax](http://lucenetutorial.com/lucene-query-syntax.html) for querying logs. See following examples for reference. 
+| Query | Meaning |
+|---|---|
+| `level:error` | exact field match |
+| `level:error resourceId:server-1` | `AND` is implicit |
+| `level:error OR level:warn` | `OR` (`AND` binds tighter than `OR`) |
+| `(level:error OR level:warn) AND commit:5e5342f` | grouping |
+| `NOT level:info` | negation |
+| `resourceId:"server 1"` | quoted value |
+| `traceId:abc-*` | prefix match (uses the index) |
+| `timestamp:>=2023-09-15T08:00:00Z` | comparison: `>`, `>=`, `<`, `<=` |
+| `timestamp:[2023-09-15 TO 2023-09-16]` | inclusive range |
+| `"connection refused" level:error` | free-text search in `message` |
+| `metadata.parentResourceId:server-0987` | nested field |
 
----
-**_NOTE:_**
-  1. Use datetime picker to select desired range
-  2. If you do not provide timestamp then it automatcally show last 24 hours logs from To Date.
----
+Searchable fields: `level, message, resourceId, timestamp, traceId, spanId, commit, metadata.parentResourceId`.
 
-1. ```
-    level: error
-   ```
-   Print last 24 hours logs having level as 'error' if you don't provide timestamp
+Free-text terms use MongoDB's `$text` index, which only works at the top level, so they can be combined with `AND` but not with `OR` or `NOT`.
 
-2. ```
-    message: /Request/
-   ```
-   Print last 24 hours logs in which message contains 'Request' keyword.
+## Benchmarks
 
-3. ```
-    level: error OR message: /Request/
-   ```
-   Print last 24 hours logs either in which level is 'error' or message contains 'Request' keyword.
+`npm run loadtest` uses [autocannon](https://github.com/mcollina/autocannon) with 100 connections for 15 s per scenario. These numbers come from an Apple M2 (8 cores) laptop with MongoDB running locally on the same machine, so treat them as relative, not absolute.
 
-4. ```
-    (level: error OR message: /Request/) AND spanId:xyz-123
-    Print last 24 hours logs which is either 'error' in level or message contains 'Request' keyword and also having spandId 'xyz-123'
-   ```
+**Single instance: batch writer against one insert per request**
 
+| Scenario | Group commit | One insert per request |
+|---|---|---|
+| Single-log POSTs | **9,462 logs/s**, p50 11 ms, p99 17 ms | 5,019 logs/s, p50 18 ms, p99 38 ms |
+| 100-log batch POSTs | 32,700 logs/s | 30,434 logs/s |
+| Search (`level:error AND resourceId:server-1*`) | 2,414 req/s, p50 40 ms | 2,035 req/s, p50 46 ms |
 
-## Example Query
-<img src="images/example.png" alt="example" style="margin-left:40px" width="80%">
+**3 instances behind Caddy**
 
-## Design & Architecture
+| Scenario | Result |
+|---|---|
+| 100-log batch POSTs | **52,454 logs/s** (1.6× a single instance) |
+| Single-log POSTs | 9,023 logs/s, the same as one instance, so MongoDB is the bottleneck here |
+| Instance killed after 5 s of a 15 s test | 140,003 × 201, 5 × 502 |
 
+**Query plans (`explain()` over 643k logs, first page of 50)**
 
+| Query | Index used | Docs read | Time |
+|---|---|---|---|
+| `level:error` | `level_1_timestamp_-1__id_-1` | 51 | <1 ms |
+| `traceId:trace-42` | `traceId_1_timestamp_-1__id_-1` | 51 | <1 ms |
+| `level:error AND resourceId:server-1*` | `level_1_timestamp_-1__id_-1` | 258 | 3 ms |
 
-Caddy server listens on port 3000 and serves as Reverse Proxy and Load Balancer. It also serves static files for web UI.
+## Limitations and next steps
 
-Backend consists of 3 servers and logs read and write requests are routed to backend cluster using round robin policy. 
-It demonstrate that the application can be scaled easily to handle desired load by adding more servers.
-
-Logs are written to MongoDB. I am using a NoSQL database for fast read and write of log documents.
-
-<img src="images/arch.jpg" alt="Architecture" style="margin-left:40px" width="80%">
-
-
-<!-- ROADMAP -->
-<!-- MARKDOWN LINKS & IMAGES -->
-<!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-[Express.js]: https://img.shields.io/badge/express.js-%23404d59.svg?style=for-the-badge&logo=express&logoColor=%2361DAFB
-[Express-url]: https://expressjs.com/
-[Node.js]: https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white
-[Node-url]: https://nodejs.org/en/
-[Caddy-img]: https://img.shields.io/badge/Caddy-1F88C0.svg?style=for-the-badge&logo=Caddy&logoColor=white
-[Caddy-url]: https://caddyserver.com/
-[Vue.js]: https://img.shields.io/badge/Vue.js-35495E?style=for-the-badge&logo=vuedotjs&logoColor=4FC08D
-[Vue-url]: https://vuejs.org/
-[Angular.io]: https://img.shields.io/badge/Angular-DD0031?style=for-the-badge&logo=angular&logoColor=white
-[Angular-url]: https://angular.io/
-[Svelte.dev]: https://img.shields.io/badge/Svelte-4A4A55?style=for-the-badge&logo=svelte&logoColor=FF3E00
-[Svelte-url]: https://svelte.dev/
-[Laravel.com]: https://img.shields.io/badge/Laravel-FF2D20?style=for-the-badge&logo=laravel&logoColor=white
-[Laravel-url]: https://laravel.com
-[Bootstrap.com]: https://img.shields.io/badge/Bootstrap-563D7C?style=for-the-badge&logo=bootstrap&logoColor=white
-[Bootstrap-url]: https://getbootstrap.com
-[JQuery.com]: https://img.shields.io/badge/jQuery-0769AD?style=for-the-badge&logo=jquery&logoColor=white
-[JQuery-url]: https://jquery.com 
-[Caddy]: https://caddyserver.com/
+- **Free-text search on common words is slow.** It scans the text index and sorts in memory (about 260 ms when a word matches all 380k logs). At scale, search belongs in Elasticsearch/OpenSearch, with MongoDB as the store.
+- **The ingest path is synchronous.** A 201 means the logs are in MongoDB. Putting a queue (Kafka/Redis Streams) in front would absorb spikes and make the API faster, at the cost of eventual consistency.
+- **No retention policy.** A TTL index on `timestamp` or time-based collections would cap storage.
+- **Single MongoDB node.** Sharding on `(resourceId, timestamp)` would scale writes.

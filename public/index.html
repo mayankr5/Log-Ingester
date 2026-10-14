@@ -63,6 +63,8 @@
             max-height: 80%;
             overflow-y: auto;
         }
+        #status { margin-left: 8px; color: #555; }
+        #load-more { margin: 8px; padding: 6px 16px; }
         .modal-content pre {
             white-space: pre-wrap;
             font-family: 'Courier New', Courier, monospace;
@@ -80,7 +82,7 @@
 <body>
     <form id="query-form">
         <label for="query" class="input-label">Query:</label><br>
-        <textarea id="query" name="query" type="text" placeholder="level: error" cols="80" rows="3"></textarea>
+        <textarea id="query" name="query" type="text" placeholder='level:error AND resourceId:server-1*   |   "connection refused" NOT level:info' cols="80" rows="3"></textarea>
         <label for="time-query-from" class="input-label">From</label>
         <input type="datetime-local" id="time-query-from" name="time-query-from" placeholder="Last 24 hours" value="">
         <label for="time-query-to" class="input-label">- To</label>
@@ -94,5 +96,7 @@
             <th>Message</th>
         </tr>
     </table>
+    <p id="status"></p>
+    <button id="load-more" type="button" hidden>Load more</button>
 </body>
 </html>

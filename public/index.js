@@ -4,45 +4,58 @@ document.addEventListener('DOMContentLoaded', function () {
     const fromTime = document.getElementById('time-query-from');
     const toTime = document.getElementById('time-query-to');
     const logTable = document.getElementById('log-table');
-    var currentDate = new Date();
-    var twentyFourHoursAgo = new Date(currentDate.getTime() - (24 * 60 * 60 * 1000));
-    var isoTimeLast24Hours = twentyFourHoursAgo.toISOString().slice(0, -8);
-    fromTime.value = isoTimeLast24Hours;
-    toTime.value = currentDate.toISOString().slice(0, -8);
+    const loadMoreButton = document.getElementById('load-more');
+    const status = document.getElementById('status');
+
+    const PAGE_SIZE = 50;
+    let currentParams = null;
+    let nextCursor = null;
+
+    // datetime-local inputs use local time, so format the default window in local time too.
+    function toLocalInputValue(date) {
+        const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+        return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+    }
+    const now = new Date();
+    fromTime.value = toLocalInputValue(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    toTime.value = toLocalInputValue(now);
 
     queryForm.addEventListener('submit', function (event) {
-        event.preventDefault()
-        const queryVal = queryInput.value.trim()
-        const timeQuery = `(timestamp >= '${new Date(fromTime.value).toISOString()}' AND timestamp <= '${new Date(toTime.value).toISOString()}')`
-        const query = `${queryVal ? ("(" + queryVal + ") AND"): ""} ${timeQuery}`;
-        console.log(query);
-        fetchData(query);
+        event.preventDefault();
+        currentParams = new URLSearchParams({ q: queryInput.value.trim(), limit: PAGE_SIZE });
+        if (fromTime.value) currentParams.set('from', new Date(fromTime.value).toISOString());
+        if (toTime.value) currentParams.set('to', new Date(toTime.value).toISOString());
+        clearTable();
+        fetchPage(null);
     });
 
-    function fetchData(query) {
-        const apiUrl = '//localhost:3000/query?q=' + encodeURIComponent(query);
+    loadMoreButton.addEventListener('click', function () {
+        fetchPage(nextCursor);
+    });
 
-        fetch(apiUrl, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
-            },
-        })
-        .then(response =>  response.json())
-        .then(data => {
-            clearTable();
-            if(data.length === 0){
-                showLogDetails("No Logs Found!")
+    async function fetchPage(cursor) {
+        const params = new URLSearchParams(currentParams);
+        if (cursor) params.set('cursor', cursor);
+        loadMoreButton.hidden = true;
+        status.textContent = 'Loading...';
+
+        try {
+            const response = await fetch('/logs?' + params.toString());
+            const data = await response.json();
+            if (!response.ok) {
+                status.textContent = 'Error: ' + data.error;
+                return;
             }
-            data.forEach(log => {
-                addLogToTable(log);
-            });
-        })
-        .catch(error => {
+
+            data.logs.forEach(addLogToTable);
+            nextCursor = data.nextCursor;
+            loadMoreButton.hidden = !nextCursor;
+            const shown = logTable.rows.length - 1;
+            status.textContent = shown === 0 ? 'No logs found.' : `Showing ${shown} logs${nextCursor ? '' : ' (end of results)'}`;
+        } catch (error) {
             console.error('Error fetching data:', error);
-            showLogDetails('Error fetching data. Please check your query and try again.');
-        });
+            status.textContent = 'Could not reach the server. Please try again.';
+        }
     }
 
     function clearTable() {
@@ -57,9 +70,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const levelCell = row.insertCell(1);
         const messageCell = row.insertCell(2);
 
-        const formattedTimestamp = new Date(log.timestamp).toLocaleString();
-
-        timestampCell.textContent = formattedTimestamp;
+        timestampCell.textContent = new Date(log.timestamp).toLocaleString();
         levelCell.textContent = log.level;
         messageCell.textContent = log.message;
 
@@ -70,45 +81,43 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function showLogDetails(log) {
         const filteredLog = filterKeys(log, ['_id', '__v']);
-    
-        const logDetails = JSON.stringify(filteredLog, null, 2);
+
         const modalOverlay = document.createElement('div');
         modalOverlay.classList.add('modal-overlay');
-    
+
         const modalContent = document.createElement('div');
         modalContent.classList.add('modal-content');
-    
+
         const preElement = document.createElement('pre');
-        preElement.textContent = logDetails;
-    
+        preElement.textContent = JSON.stringify(filteredLog, null, 2);
+
         modalContent.appendChild(preElement);
         modalOverlay.appendChild(modalContent);
         document.body.appendChild(modalOverlay);
-    
-        modalOverlay.addEventListener('click', function () {
+
+        modalOverlay.addEventListener('click', function (event) {
             if (event.target === modalOverlay) {
                 document.body.removeChild(modalOverlay);
             }
         });
     }
-    
+
     function filterKeys(obj, keysToExclude) {
         if (typeof obj !== 'object' || obj === null) {
             return obj;
         }
-    
+
         if (Array.isArray(obj)) {
             return obj.map(item => filterKeys(item, keysToExclude));
         }
-    
+
         const filteredObj = {};
         for (const [key, value] of Object.entries(obj)) {
             if (!keysToExclude.includes(key)) {
                 filteredObj[key] = filterKeys(value, keysToExclude);
             }
         }
-    
+
         return filteredObj;
-    }    
-    
+    }
 });

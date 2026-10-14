@@ -1,22 +1,25 @@
 {
   "name": "logingester",
   "version": "1.0.0",
-  "description": "",
+  "description": "Log ingestion and search service with a Lucene-style query language",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test test/*.test.js",
+    "loadtest": "node scripts/loadtest.js",
+    "mongo": "node scripts/dev-mongo.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "bson": "^6.2.0",
-    "bson-objectid": "^2.0.4",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "escape-regexp": "^0.0.1",
     "express": "^4.18.2",
-    "lucene-mongo-query": "^0.6.0",
     "mongoose": "^8.0.1"
+  },
+  "devDependencies": {
+    "autocannon": "^8.0.0",
+    "mongodb-memory-server": "^11.3.0",
+    "supertest": "^7.3.1"
   }
 }

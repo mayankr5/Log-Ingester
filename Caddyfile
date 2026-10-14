@@ -1,14 +1,27 @@
 http://localhost:3000
 
 log {
-    output file ./logs/access_logs.log
+	output file ./logs/access_logs.log
 }
 
 handle_path /explorer/* {
-    root * ./public
-    file_server
+	root * ./public
+	file_server
 }
 
 reverse_proxy :8001 :8002 :8003 {
-    lb_policy   round_robin    
+	lb_policy round_robin
+
+	# Active health checks: an instance that fails /health is taken out of
+	# rotation until it recovers.
+	health_uri /health
+	health_interval 5s
+	health_timeout 2s
+
+	# Passive health checks: a failed request marks the instance down right
+	# away, without waiting for the next active check.
+	fail_duration 10s
+
+	# If a request can't reach an instance, retry it on another one.
+	lb_try_duration 2s
 }
